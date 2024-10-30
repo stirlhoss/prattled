@@ -30,3 +30,4 @@ pub fn middleware(
   // Handle the request!
   handle_request(req)
 }
+
