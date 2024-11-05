@@ -1,20 +1,27 @@
 import app/web
 import gleam/http.{Get, Post}
+import gleam/dynamic.{type Dynamic}
 import gleam/string_builder
 import gleam/list
 import gleam/result
 import wisp.{type Request, type Response}
 
-/// The HTTP request handler- your application!
-/// 
-pub fn handle_request(req: Request) -> Response {
-  // Apply the middleware stack for this request/response.
-  use req <- web.middleware(req)
+pub type Person {
+Person(name: String, is_cool: Bool)
+}
 
-  // Wisp doesn't have a special router abstraction, instead we recommend using
-  // regular old pattern matching. This is faster than a router, is type safe,
-  // and means you don't have to learn or be limited by a special DSL.
-  //
+fn decode_person(json: Dynamic) -> Result(Person, dynamic.DecodeErrors) {
+  let decoder =
+    dynamic.decode2(
+      Person,
+      dynamic.field("name", dynamic.string),
+      dynamic.field("is-cool", dynamic.bool),
+     )
+  decoder(json)
+}
+
+pub fn handle_request(req: Request) -> Response {
+  use req <- web.middleware(req)
   case wisp.path_segments(req) {
     // This matches `/`.
     [] -> home_page(req)
