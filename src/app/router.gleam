@@ -1,136 +1,52 @@
-import app/web
+import app/error.{type AppError}
+import app/web.{type Context}
+import app/web/word.{type Word}
+import gleam/json.{array, int, null, object, string}
+
+// import gleam/dynamic.{type Dynamic}
 import gleam/http.{Get, Post}
-import gleam/dynamic.{type Dynamic}
-import gleam/string_builder
-import gleam/list
-import gleam/result
 import wisp.{type Request, type Response}
 
-pub type Person {
-Person(name: String, is_cool: Bool)
-}
-
-fn decode_person(json: Dynamic) -> Result(Person, dynamic.DecodeErrors) {
-  let decoder =
-    dynamic.decode2(
-      Person,
-      dynamic.field("name", dynamic.string),
-      dynamic.field("is-cool", dynamic.bool),
-     )
-  decoder(json)
-}
-
-pub fn handle_request(req: Request) -> Response {
+pub fn handle_request(req: Request, ctx: Context) -> Response {
   use req <- web.middleware(req)
+
+  // A new `app/web/people` module now contains the handlers and other functions
+  // relating to the People feature of the application.
+  //
+  // The router module now only deals with routing, and dispatches to the
+  // feature modules for handling requests.
+  // 
   case wisp.path_segments(req) {
-    // This matches `/`.
-    [] -> home_page(req)
-
-    // This matches `/comments`.
-    ["comments"] -> comments(req)
-
-    // This matches `/comments/:id`.
-    // The `id` segment is bound to a variable and passed to the handler.
-    ["comments", id] -> show_comment(req, id)
-
-    // This matches all other paths.
+    [letter, word] -> one_word(req, ctx, letter, word)
     _ -> wisp.not_found()
   }
 }
 
-fn home_page(req: Request) -> Response {
+// This request handler is used for requests to `/:letter/:word`.
+//
+pub fn one_word(
+  req: Request,
+  ctx: Context,
+  letter: String,
+  word: String,
+) -> Response {
+  // Dispatch to the appropriate handler based on the HTTP method.
   case req.method {
-    Get -> show_form()
-    Post -> handle_form_submission(req)
-    _ -> wisp.method_not_allowed(allowed: [Get, Post])
-  }
-  // The home page can only be accessed via GET requests, so this middleware is
-  // used to return a 405: Method Not Allowed response for all other methods.
-  // use <- wisp.require_method(req, Get)
-
-  // let html = string_builder.from_string("")
-  // wisp.ok()
-  // |> wisp.html_body(html)
-}
-
-fn show_form() -> Response {
-  let html =
-    string_builder.from_string(
-      "<h1>Prattle on...</h1>
-       <form method='post'>
-        <label>Title:
-          <input type='text' name='title'>
-        </label>
-        <label>Name:
-          <input type='text' name='name'>
-        </label>
-        <input type='submit' value='Submit'>
-      </form>",
-    )
-  wisp.ok()
-  |> wisp.html_body(html)
-}
-
-pub fn handle_form_submission(req: Request) -> Response {
-  // This middleware parses a `wisp.FormData` from the request body.
-  // It returns an error response if the body is not valid form data, or
-  // if the content-type is not `application/x-www-form-urlencoded` or
-  // `multipart/form-data`, or if the body is too large.
-  use formdata <- wisp.require_form(req)
-
-  // The list and result module are used here to extract the values from the
-  // form data.
-  // Alternatively you could also pattern match on the list of values (they are
-  // sorted into alphabetical order), or use a HTML form library.
-  let result = {
-    use title <- result.try(list.key_find(formdata.values, "title"))
-    use name <- result.try(list.key_find(formdata.values, "name"))
-    let greeting =
-      "Hi, " <> wisp.escape_html(title) <> " " <> wisp.escape_html(name) <> "!"
-    Ok(greeting)
-  }
-
-  // An appropriate response is returned depending on whether the form data
-  // could be successfully handled or not.
-  case result {
-    Ok(content) -> {
-      wisp.ok()
-      |> wisp.html_body(string_builder.from_string(content))
-    }
-    Error(_) -> {
-      wisp.bad_request()
-    }
+    Get -> get_word(ctx, letter, word)
+    _ -> wisp.method_not_allowed()
   }
 }
 
-fn comments(req: Request) -> Response {
-  case req.method {
-    Get -> list_comments()
-    Post -> create_comment(req)
-    _ -> wisp.method_not_allowed([Get, Post])
-  }
+fn get_word(ctx: Context, letter: string, word: String) -> Response {
+  let result = word.read_from_database(ctx, letter, word)
+
+  use word <- web.require_ok(result)
+
+  word_to_json(word)
+  |> wisp.html_response(200)
 }
 
-fn list_comments() -> Response {
-  // In a later example we'll show how to read from a database.
-  let html = string_builder.from_string("Comments!")
-  wisp.ok()
-  |> wisp.html_body(html)
-}
-
-fn create_comment(_req: Request) -> Response {
-  let html = string_builder.from_string("Created")
-  wisp.created()
-  |> wisp.html_body(html)
-}
-
-fn show_comment(req: Request, id: String) -> Response {
-  use <- wisp.require_method(req, Get)
-
-  // The `id` path parameter has been passed to this function, so we could use
-  // it to look up a comment in a database.
-  // For now we'll just include in the response body.
-  let html = string_builder.from_string("Comment with id " <> id)
-  wisp.ok()
-  |> wisp.html_body(html)
+pub fn word_to_json(word: Word) -> String {
+  object([#("id", int(word.id)), #("word", string(word.word))])
+  |> json.to_string
 }
